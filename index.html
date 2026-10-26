@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f2e9">
+  <title>SeatReach</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="core.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><h1 id="app-name"></h1><span class="edition">FIELD NOTES / 01</span></div>
+      <p>Check every seat’s aisle access — for volunteer organizers planning small events.</p>
+    </header>
+    <section class="summary-bar" aria-label="Plan summary">
+      <div><span class="eyebrow">COMMUNITY HALL <span class="divider">/</span> ACCESS STUDY</span><p id="summary" aria-live="polite" aria-atomic="true"></p></div>
+      <div class="summary-status" id="summary-status"></div>
+    </section>
+    <main>
+      <section class="drawing" aria-label="Interactive room plan">
+        <div class="drawing-header"><span>01 <b>Floor plan</b></span><span>12.0 × 8.0 m <span class="divider">/</span> SNAP 10 CM</span></div>
+        <div class="canvas-wrap"><canvas id="plan" tabindex="0" aria-label="Room plan. Drag a table or select one in the controls, then use arrow keys to move it. Click a seat to show its route."></canvas></div>
+        <div class="drawing-footer"><div class="legend"><span><i class="swatch floor"></i>Reachable floor</span><span><i class="swatch seat"></i>Reachable seat</span><span><i class="swatch blocked">!</i>Blocked seat</span></div><span class="drawing-instruction">Drag a table · Click a seat</span></div>
+      </section>
+      <aside aria-label="Plan controls">
+        <section class="control-section width-section">
+          <div class="label-row"><label for="width">Required clear width</label><output id="width-value" for="width">90 <small>cm</small></output></div>
+          <input id="width" type="range" min="60" max="120" step="5" value="90" aria-describedby="width-help">
+          <div class="range-labels"><span>60 cm</span><span>120 cm</span></div>
+          <p class="micro" id="width-help">Square mover · includes chairs as obstacles</p>
+        </section>
+        <section class="control-section table-section">
+          <div class="label-row"><label for="table-select">Selected table</label><span class="tag">10 CM SNAP</span></div>
+          <select id="table-select" aria-label="Selected table"></select>
+          <div class="button-row"><button id="rotate" type="button">Rotate 90°</button><button id="delete" type="button">Delete table</button></div>
+          <button id="add" class="text-button" type="button"><span aria-hidden="true">＋</span> Add table</button>
+          <p class="micro">Focus plan: arrows move 10 cm. Double-click rotates.</p>
+        </section>
+        <section class="route-section">
+          <label for="seat-select">Example route</label>
+          <select id="seat-select"><option value="">Select a seat on the plan</option></select>
+          <p id="route-note" class="micro">Dashed routes are too narrow for this width.</p>
+        </section>
+        <div class="insight" id="insight"><span class="insight-icon" aria-hidden="true">!</span><p id="insight-text"></p></div>
+        <section class="export-section" aria-label="Save or reset plan">
+          <button id="download" class="primary" type="button">Download plan (PNG)<span aria-hidden="true">↓</span></button>
+          <div class="button-row"><button id="copy" type="button">Copy layout (JSON)</button><button id="preset" type="button">Load preset</button></div>
+        </section>
+        <p id="feedback" class="micro feedback" role="status" aria-live="polite"></p>
+      </aside>
+    </main>
+    <footer><p>Planning aid on a simplified plan. It does not certify accessibility or fire-code compliance.</p><a href="tests.html">View logic tests <span aria-hidden="true">↗</span></a></footer>
+  </div>
+  <dialog id="copy-dialog" aria-labelledby="copy-heading"><h2 id="copy-heading">Copy layout</h2><p>Your browser needs a manual copy. Select the text below and copy it.</p><textarea id="json-text" readonly aria-label="Layout JSON" rows="12"></textarea><button id="close-copy" type="button">Close</button></dialog>
+</body>
+</html>

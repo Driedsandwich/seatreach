@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan logic tests</title>
+  <link rel="stylesheet" href="style.css">
+  <style>body{max-width:960px;margin:36px auto;padding:0 24px}h1{margin:20px 0 12px;font-size:28px}p{max-width:80ch}pre{white-space:pre-wrap;background:#faf8f1;border:1px solid #d8d7ca;padding:24px;font-size:13px;line-height:1.9}#timing{font-size:12px;color:#70766b}</style>
+</head>
+<body>
+  <a href="index.html">← Back to the plan</a>
+  <h1>Geometry &amp; route checks</h1>
+  <p>These tests load the same pure logic used by the app. Distances use a Chebyshev transform on 10 cm cells, measured to occupied cell boundaries. Rectangles use cell-centre rasterization; paths use four neighbours. Reported widths have 10 cm grid resolution.</p>
+  <p>Seat access uses the mover’s footprint touching the chair’s outer edge, with its centre offset from the rasterized chair edge by half its width and rounded outward to a grid centre. Sampling can conservatively understate a gap by up to 10 cm (the 120 cm entrance samples as 110 cm). A blocked seat’s widest route uses the largest mover that can reach that approach. Literal centre-cell contact with an obstacle chair cannot accommodate the required mover widths.</p>
+  <pre id="results" aria-live="polite">Running tests…
+</pre>
+  <p id="timing"></p>
+  <!-- A classic script loads core.js from file:// as well as GitHub Pages;
+       ES module imports are blocked by browsers on local file origins. -->
+  <script src="core.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    const results = document.getElementById('results');
+    results.textContent = '';
+    let failures = 0;
+    function test(name, assertion) {
+      try { if (!assertion()) throw new Error('assertion returned false'); results.textContent += 'PASS ' + name + '\n'; }
+      catch (error) { failures++; results.textContent += 'FAIL ' + name + ': ' + error.message + '\n'; }
+    }
+    function equal(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+    try {
+      const C = globalThis.SeatReachCore;
+      const occupied = new Uint8Array(81); occupied[4 * 9 + 4] = 1;
+      const d = C.clearanceMap(occupied, 9, 9);
+      test('occupied cell has zero clearance', () => d[40] === 0);
+      test('adjacent free cell has 5 cm boundary clearance', () => d[41] === 5);
+      test('diagonal neighbour uses Chebyshev clearance of 5 cm', () => d[50] === 5);
+      test('two diagonal steps have 15 cm clearance', () => d[2 * 9 + 2] === 15);
+      test('wall-adjacent cell has 5 cm clearance', () => d[4] === 5);
+      const empty = new Uint8Array(81);
+      const closed = C.clearanceMap(empty, 9, 9);
+      const open = C.clearanceMap(empty, 9, 9, 10, { start: 30, end: 60 });
+      test('empty 90 cm room has 45 cm centre clearance', () => closed[40] === 45);
+      test('entrance removes the bottom wall but retains jamb clearance', () => closed[76] === 5 && open[76] === 15);
+      function corridor(gapCells) {
+        const cols = 31, rows = 25, solid = new Uint8Array(cols * rows);
+        const first = 12 - Math.floor(gapCells / 2);
+        for (let y = 0; y < rows; y++) if (y < first || y >= first + gapCells) solid[y * cols + 15] = 1;
+        return { cols, rows, solid, clear: C.clearanceMap(solid, cols, rows), starts: [12 * cols + 6], target: 12 * cols + 24 };
+      }
+      const exact = corridor(9), narrow = corridor(8), seventy = corridor(7);
+      test('BFS passes a gap exactly 90 cm wide for a 90 cm mover', () => C.flood(exact.clear, exact.cols, exact.rows, exact.starts, 90)[exact.target] === 1);
+      test('BFS rejects an 80 cm gap for a 90 cm mover', () => C.flood(narrow.clear, narrow.cols, narrow.rows, narrow.starts, 90)[narrow.target] === 0);
+      const widest = C.widestPaths(seventy.clear, seventy.cols, seventy.rows, seventy.starts);
+      const route = C.tracePath(seventy.target, widest, seventy.clear, seventy.cols);
+      test('widest path reports the hand-built 70 cm pinch', () => route.gap === 70 && seventy.clear[route.pinch] === 35);
+      test('widest path is continuous and never crosses an obstacle', () => route.cells.length > 0 && route.cells.every((i, n) => seventy.clear[i] > 0 && (!n || Math.abs(i - route.cells[n - 1]) === seventy.cols || (Math.abs(i - route.cells[n - 1]) === 1 && Math.floor(i / seventy.cols) === Math.floor(route.cells[n - 1] / seventy.cols)))));
+      test('widest route starts at entrance and ends at target', () => route.cells[0] === seventy.starts[0] && route.cells[route.cells.length - 1] === seventy.target);
+      const isolated = new Float32Array(9); isolated[0] = 45; isolated[8] = 45;
+      const noPath = C.tracePath(8, C.widestPaths(isolated, 3, 3, [0]), isolated, 3);
+      test('unconnected target has no invented path', () => noPath.gap === 0 && noPath.pinch === -1 && noPath.cells.length === 0);
+      const preset = C.preset(), snapshot = JSON.stringify(preset);
+      const a = C.analyze(preset, 90);
+      test('preset contains six tables and 36 seats', () => preset.length === 6 && a.seats.length === 36);
+      test('preset has no chair overlaps or out-of-room geometry', () => preset.every(t => C.canPlace(t, preset)));
+      test('preset has exactly the three rear T6 seats blocked at 90 cm', () => a.reachable === 33 && equal(a.seats.filter(s => !s.reachable).map(s => s.id), ['T6-1-0', 'T6-1-1', 'T6-1-2']));
+      test('preset deduplicates its shared 70 cm pinch', () => a.pinches.length === 1 && a.pinches[0].gap === 70 && a.seats.filter(s => !s.reachable).every(s => s.pinch === a.pinches[0].cell));
+      test('pinch marker spans the actual chair-to-wall gap', () => {
+        const i = a.pinches[0].cell, x = (i % a.cols + .5) * 10, y = (Math.floor(i / a.cols) + .5) * 10;
+        return x - 35 === 1130 && x + 35 === 1200 && a.seats.some(s => s.tableId === 'T6' && s.dx === 1 && y >= s.y && y < s.y + s.h);
+      });
+      test('each 10 cm left nudge of T6 is legal', () => [10,20,30].every(dx => { const t = { ...preset[5], x: preset[5].x - dx }; return C.canPlace(t, preset); }));
+      const g = C.geometry({ id: 'R', x: 300, y: 300, rotated: true });
+      test('rotation swaps dimensions and keeps six chairs on long sides', () => g.w === 75 && g.h === 180 && g.seats.length === 6 && g.seats.every(s => s.w === 45 && s.h === 45 && Math.abs(s.dx) === 1 && s.dy === 0));
+      test('overlapping tables and out-of-room chairs are rejected', () => !C.canPlace({ ...preset[0], id: 'new' }, preset) && !C.canPlace({ id: 'new', x: 0, y: 0 }, []));
+      test('analysis does not mutate the input layout', () => JSON.stringify(preset) === snapshot);
+      test('empty layout has zero seats and reachable floor', () => { const emptyPlan = C.analyze([], 90); return emptyPlan.seats.length === 0 && emptyPlan.reachable === 0 && emptyPlan.reached.some(Boolean); });
+      test('60 cm approach correctly accounts for rasterized chair edges', () => C.analyze(preset, 60).reachable === 36);
+      test('every slider step is monotonic: narrower movers retain access', () => {
+        let previous = C.analyze(preset, 60).seats;
+        for (let width = 65; width <= 120; width += 5) {
+          const current = C.analyze(preset, width).seats;
+          if (current.some((seat, i) => seat.reachable && !previous[i].reachable)) return false;
+          previous = current;
+        }
+        return true;
+      });
+      const moved = preset.map(t => t.id === 'T6' ? { ...t, x: t.x - 30 } : t);
+      test('moving T6 30 cm left reconnects all 36 seats at 90 cm', () => C.analyze(moved, 90).reachable === 36);
+      test('original preset connects all 36 seats at 65 cm', () => C.analyze(preset, 65).reachable === 36);
+      test('original preset remains unchanged after moved-layout analysis', () => C.analyze(C.preset(), 90).reachable === 33 && JSON.stringify(preset) === snapshot);
+      const times = [];
+      for (let n = 0; n < 12; n++) { const start = performance.now(); C.analyze(preset, 90); times.push(performance.now() - start); }
+      times.sort((x,y) => x-y);
+      document.getElementById('timing').textContent = 'Preset recompute: ' + times[6].toFixed(1) + ' ms median over 12 runs on this device (target < 50 ms). Timing is informational.';
+    } catch (error) { failures++; results.textContent += 'FAIL test setup: ' + error.message + '\n'; }
+    results.textContent += failures ? 'FAILURES: ' + failures : 'ALL PASS';
+  })();
+  </script>
+</body>
+</html>
